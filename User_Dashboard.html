@@ -346,6 +346,16 @@
                 font-size: 1rem;
             }
         }
+        
+        /* Developer pin styling */
+        .dev-pin {
+            cursor: move !important;
+        }
+        
+        .dev-pin:hover {
+            transform: scale(1.2);
+            transition: transform 0.2s ease;
+        }
     </style>
 </head>
 <body class="min-h-screen bg-gray-50 p-2 sm:p-5">
@@ -358,6 +368,11 @@
         <!-- Audio Indicator -->
         <div id="audio-indicator" class="fixed top-16 right-5 w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white z-50 shadow-lg hidden">
             <i class="fas fa-volume-up"></i>
+        </div>
+
+        <!-- Developer Mode Toggle -->
+        <div id="dev-mode-toggle" class="fixed top-28 right-5 px-3 py-2 bg-gray-800 text-white text-xs font-bold z-50 shadow-lg rounded-full cursor-pointer hover:bg-gray-700 transition-colors">
+            <i class="fas fa-code mr-1"></i> DEV MODE
         </div>
 
         <div class="space-y-5 bg-white rounded-2xl shadow-lg p-4">
@@ -470,7 +485,9 @@
             restrictedLayer: null,
             personMarkers: [],
             currentZone: null,
-            locationWatchId: null
+            locationWatchId: null,
+            devMode: false,
+            devPin: null
         };
 
         // Polygon coordinates
@@ -518,6 +535,14 @@
             // Set up locate me button
             const locateMeBtn = document.getElementById('locate-me-btn');
             locateMeBtn.addEventListener('click', locateUser);
+
+            // Set up developer mode toggle
+            const devModeToggle = document.getElementById('dev-mode-toggle');
+            devModeToggle.addEventListener('click', toggleDevMode);
+
+            // Enable audio on first user interaction
+            document.addEventListener('click', enableAudio, { once: true });
+            document.addEventListener('touchstart', enableAudio, { once: true });
 
             // Generate initial data
             generateNearbyPersons();
@@ -677,8 +702,27 @@
 
         // Play beep sound
         function playBeep(frequency = 800) {
-            if (!state.audioContext) return;
+            // Ensure audio context is initialized
+            if (!state.audioContext) {
+                try {
+                    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.log('Audio not supported');
+                    return;
+                }
+            }
             
+            // Resume audio context if suspended (required by browsers)
+            if (state.audioContext.state === 'suspended') {
+                state.audioContext.resume().then(() => {
+                    playBeepSound(frequency);
+                });
+            } else {
+                playBeepSound(frequency);
+            }
+        }
+
+        function playBeepSound(frequency) {
             const oscillator = state.audioContext.createOscillator();
             const gainNode = state.audioContext.createGain();
             
@@ -701,11 +745,20 @@
             state.isBeeping = true;
             document.getElementById('audio-indicator').classList.remove('hidden');
             
+            // Determine frequency based on zone type
+            let frequency = 800; // Default frequency
+            if (state.currentZone === 'red') {
+                frequency = 1000; // Higher frequency for red zone
+            } else if (state.currentZone === 'yellow') {
+                frequency = 600; // Lower frequency for yellow zone
+            }
+            
             state.beepTimer = setInterval(() => {
-                playBeep(state.isInRestrictedZone ? 1000 : 600);
+                playBeep(frequency);
             }, interval);
             
-            playBeep();
+            // Play initial beep
+            playBeep(frequency);
         }
 
         // Stop beeping
@@ -971,9 +1024,117 @@
             );
         }
 
+        // Enable audio function
+        function enableAudio() {
+            if (!state.audioContext) {
+                try {
+                    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('Audio enabled');
+                } catch (e) {
+                    console.log('Audio not supported');
+                }
+            }
+        }
+
+        // Developer Mode Functions
+        function toggleDevMode() {
+            state.devMode = !state.devMode;
+            const toggle = document.getElementById('dev-mode-toggle');
+            
+            if (state.devMode) {
+                // Enable developer mode
+                toggle.style.backgroundColor = '#10B981';
+                toggle.innerHTML = '<i class="fas fa-code mr-1"></i> DEV ON';
+                
+                // Stop live location tracking
+                if (state.locationWatchId) {
+                    navigator.geolocation.clearWatch(state.locationWatchId);
+                    state.locationWatchId = null;
+                }
+                
+                // Create draggable pin
+                createDraggablePin();
+                
+                // Update notification
+                document.getElementById('notification-text').textContent = 
+                    'Developer mode enabled. Drag the red pin to test different locations.';
+            } else {
+                // Disable developer mode
+                toggle.style.backgroundColor = '#6B7280';
+                toggle.innerHTML = '<i class="fas fa-code mr-1"></i> DEV MODE';
+                
+                // Remove draggable pin
+                if (state.devPin) {
+                    state.map.removeLayer(state.devPin);
+                    state.devPin = null;
+                }
+                
+                // Resume live location tracking
+                startLocationTracking();
+                
+                // Update notification
+                document.getElementById('notification-text').textContent = 
+                    'Developer mode disabled. Live location tracking resumed.';
+            }
+        }
+
+        function createDraggablePin() {
+            // Create a draggable marker for testing
+            const devIcon = L.divIcon({
+                className: 'dev-pin',
+                html: '<div style="background-color: #EF4444; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); cursor: move;"></div>',
+                iconSize: [20, 20]
+            });
+            
+            state.devPin = L.marker([state.userPosition.lat, state.userPosition.lng], { 
+                icon: devIcon,
+                draggable: true
+            }).addTo(state.map);
+            
+            // Add drag event listener
+            state.devPin.on('dragend', function(e) {
+                const newPos = e.target.getLatLng();
+                state.userPosition = { lat: newPos.lat, lng: newPos.lng };
+                state.userMarker.setLatLng([newPos.lat, newPos.lng]);
+                checkRestrictedZones(newPos.lat, newPos.lng);
+                
+                // Update notification with coordinates
+                document.getElementById('notification-text').textContent = 
+                    `Testing location: ${newPos.lat.toFixed(6)}, ${newPos.lng.toFixed(6)}`;
+            });
+        }
+
+        function startLocationTracking() {
+            if (navigator.geolocation) {
+                state.locationWatchId = navigator.geolocation.watchPosition(
+                    function(position) {
+                        if (!state.devMode) {
+                            const lat = position.coords.latitude;
+                            const lng = position.coords.longitude;
+                            
+                            state.userPosition = { lat, lng };
+                            state.userMarker.setLatLng([lat, lng]);
+                            checkRestrictedZones(lat, lng);
+                        }
+                    },
+                    function(error) {
+                        console.log('Location tracking error:', error);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 60000
+                    }
+                );
+            }
+        }
+
         // Initialize the app when the page loads
         window.addEventListener('DOMContentLoaded', () => {
             initApp();
+            
+            // Start location tracking
+            startLocationTracking();
             
             // Handle window resize for proper chart rendering
             window.addEventListener('resize', () => {

@@ -302,6 +302,60 @@
                 font-size: 1rem;
             }
         }
+        
+        /* Developer pin styling */
+        .dev-pin {
+            cursor: move !important;
+        }
+        
+        .dev-pin:hover {
+            transform: scale(1.2);
+            transition: transform 0.2s ease;
+        }
+        
+        /* Location button styling */
+        #locate-me-btn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            z-index: 1000;
+            background-color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        #locate-me-btn:hover {
+            background-color: #f0f0f0;
+            transform: scale(1.1);
+        }
+        
+        #locate-me-btn.locating {
+            background-color: #3B82F6;
+            color: white;
+        }
+        
+        /* Loading indicator for location */
+        .location-loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="min-h-screen bg-gray-50 p-2 sm:p-5">
@@ -316,10 +370,46 @@
             <i class="fas fa-volume-up"></i>
         </div>
 
+        <!-- Developer Mode Toggle -->
+        <div id="dev-mode-toggle" class="fixed top-28 right-5 px-3 py-2 bg-gray-800 text-white text-xs font-bold z-50 shadow-lg rounded-full cursor-pointer hover:bg-gray-700 transition-colors">
+            <i class="fas fa-code mr-1"></i> DEV MODE
+        </div>
+
+        <!-- Test Beep Button -->
+        <div id="test-beep-btn" class="fixed top-40 right-5 px-3 py-2 bg-blue-600 text-white text-xs font-bold z-50 shadow-lg rounded-full cursor-pointer hover:bg-blue-700 transition-colors">
+            <i class="fas fa-volume-up mr-1"></i> TEST BEEP
+        </div>
+
+        <!-- Test Yellow Beep Button -->
+        <div id="test-yellow-btn" class="fixed top-52 right-5 px-3 py-2 bg-yellow-600 text-white text-xs font-bold z-50 shadow-lg rounded-full cursor-pointer hover:bg-yellow-700 transition-colors">
+            <i class="fas fa-exclamation-triangle mr-1"></i> TEST YELLOW
+        </div>
+
+        <!-- Test Safety Score Button -->
+        <div id="test-score-btn" class="fixed top-64 right-5 px-3 py-2 bg-red-600 text-white text-xs font-bold z-50 shadow-lg rounded-full cursor-pointer hover:bg-red-700 transition-colors">
+            <i class="fas fa-exclamation-circle mr-1"></i> TEST SCORE
+        </div>
+
+        <!-- Coordinates Display -->
+        <div id="coordinates-display" class="fixed bottom-5 left-5 px-3 py-2 bg-black bg-opacity-75 text-white text-xs font-mono z-50 shadow-lg rounded-lg">
+            <div class="flex items-center">
+                <i class="fas fa-map-marker-alt mr-2 text-blue-400"></i>
+                <div>
+                    <div>Lat: <span id="current-lat">22.988500</span></div>
+                    <div>Lng: <span id="current-lng">88.453000</span></div>
+                </div>
+            </div>
+        </div>
+
         <div class="space-y-5 bg-white rounded-2xl shadow-lg p-4">
             <!-- Map Container -->
             <div id="map-container" class="relative h-64 rounded-2xl overflow-hidden shadow-xl">
                 <div id="map"></div>
+                
+                <!-- Locate Me Button -->
+                <button id="locate-me-btn" title="Show my location">
+                    <i class="fas fa-location-arrow"></i>
+                </button>
                 
                 <!-- Nearest Person Circle -->
                 <div id="nearest-person-circle" class="absolute person-circle z-20 transform -translate-x-1/2 -translate-y-1/2 shadow-lg"
@@ -403,10 +493,11 @@
         // App state
         const state = {
             userPosition: { lat: 22.9885, lng: 88.4530 }, // Default near your zones
-            userPoints: 85,
+            userPoints: 100,
             maxPoints: 100,
             isInRestrictedZone: false,
             currentStatus: 'Safe Zone',
+            currentZone: null,
             emergencyProgress: 0,
             isEmergencyActive: false,
             nearbyPersons: [],
@@ -419,29 +510,36 @@
             map: null,
             userMarker: null,
             restrictedLayer: null,
-            personMarkers: []
+            personMarkers: [],
+            devMode: false,
+            devPin: null,
+            locationWatchId: null
         };
 
-        // Polygon coordinates for Kalyani Government Engineering College
+        // Polygon coordinates from location_checker.py (converted to [lat, lng] format)
+        // Priority: RED > GREEN > YELLOW (matching Python script)
         const redZoneCoords = [
             [22.98805, 88.45294],
             [22.98799, 88.45321],
             [22.98892, 88.45361],
-            [22.98902, 88.45332]
-        ];
-
-        const yellowZoneCoords = [
-            [22.9881, 88.45285],
-            [22.98808, 88.45295],
             [22.98902, 88.45332],
-            [22.98905, 88.45323]
+            [22.98805, 88.45294]  // Close the polygon
         ];
 
         const greenZoneCoords = [
             [22.98816, 88.45272],
             [22.9881, 88.45285],
             [22.98905, 88.45323],
-            [22.9891, 88.45309]
+            [22.9891, 88.45309],
+            [22.98816, 88.45272]  // Close the polygon
+        ];
+
+        const yellowZoneCoords = [
+            [22.9881, 88.45285],
+            [22.98808, 88.45295],
+            [22.98902, 88.45332],
+            [22.98905, 88.45323],
+            [22.9881, 88.45285]  // Close the polygon
         ];
 
         // Initialize the app
@@ -464,6 +562,30 @@
             emergencyBtn.addEventListener('touchstart', startEmergencyHold);
             emergencyBtn.addEventListener('touchend', stopEmergencyHold);
 
+            // Set up developer mode toggle
+            const devModeToggle = document.getElementById('dev-mode-toggle');
+            devModeToggle.addEventListener('click', toggleDevMode);
+
+            // Enable audio on first user interaction
+            document.addEventListener('click', enableAudio, { once: true });
+            document.addEventListener('touchstart', enableAudio, { once: true });
+
+            // Set up test beep button
+            const testBeepBtn = document.getElementById('test-beep-btn');
+            testBeepBtn.addEventListener('click', testBeep);
+
+            // Set up test yellow beep button
+            const testYellowBtn = document.getElementById('test-yellow-btn');
+            testYellowBtn.addEventListener('click', testYellowBeeping);
+
+            // Set up test score button
+            const testScoreBtn = document.getElementById('test-score-btn');
+            testScoreBtn.addEventListener('click', testSafetyScore);
+
+            // Set up locate me button
+            const locateMeBtn = document.getElementById('locate-me-btn');
+            locateMeBtn.addEventListener('click', locateUser);
+
             // Generate initial data
             generateNearbyPersons();
             updateTime();
@@ -476,22 +598,48 @@
             // Initial render
             updateDonutChart();
             updateStatusIndicator();
+            updateCoordinates(state.userPosition.lat, state.userPosition.lng);
         }
 
         // Initialize map
         function initMap() {
-            // Create map centered on Kalyani Government Engineering College
-            state.map = L.map('map').setView([state.userPosition.lat, state.userPosition.lng], 18);
+            // Create map centered on the geofenced area (not user's current location)
+            const geofenceCenter = { lat: 22.9885, lng: 88.4530 }; // Center of the geofenced zones
+            state.map = L.map('map').setView([geofenceCenter.lat, geofenceCenter.lng], 18);
             
             // Add OpenStreetMap tiles
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(state.map);
             
-            // Add user marker
+            // Add user marker with map-style icon
             const userIcon = L.divIcon({
                 className: 'custom-marker',
-                iconSize: [24, 24]
+                html: `
+                    <div style="
+                        width: 30px; 
+                        height: 30px; 
+                        background: #3B82F6; 
+                        border: 3px solid white; 
+                        border-radius: 50% 50% 50% 0; 
+                        transform: rotate(-45deg); 
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                        position: relative;
+                    ">
+                        <div style="
+                            position: absolute;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%) rotate(45deg);
+                            width: 8px;
+                            height: 8px;
+                            background: white;
+                            border-radius: 50%;
+                        "></div>
+                    </div>
+                `,
+                iconSize: [30, 30],
+                iconAnchor: [15, 30]
             });
             
             state.userMarker = L.marker(state.userPosition, { icon: userIcon })
@@ -535,11 +683,11 @@
                 });
             });
             
-            // Store restricted zones for checking
+            // Store restricted zones for checking with priority types
             state.restrictedZones = [
-                { coords: redZoneCoords, name: 'Red Zone' },
-                { coords: yellowZoneCoords, name: 'Yellow Zone' },
-                { coords: greenZoneCoords, name: 'Green Zone' }
+                { coords: redZoneCoords, name: 'Red Zone', type: 'red' },
+                { coords: greenZoneCoords, name: 'Green Zone', type: 'green' },
+                { coords: yellowZoneCoords, name: 'Yellow Zone', type: 'yellow' }
             ];
             
             // Add person markers layer
@@ -659,8 +807,31 @@
 
         // Play beep sound
         function playBeep(frequency = 800) {
-            if (!state.audioContext) return;
+            console.log(`Playing beep with frequency: ${frequency}`);
             
+            // Ensure audio context is initialized
+            if (!state.audioContext) {
+                try {
+                    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('Audio context created');
+                } catch (e) {
+                    console.log('Audio not supported');
+                    return;
+                }
+            }
+            
+            // Resume audio context if suspended (required by browsers)
+            if (state.audioContext.state === 'suspended') {
+                console.log('Resuming suspended audio context');
+                state.audioContext.resume().then(() => {
+                    playBeepSound(frequency);
+                });
+            } else {
+                playBeepSound(frequency);
+            }
+        }
+
+        function playBeepSound(frequency) {
             const oscillator = state.audioContext.createOscillator();
             const gainNode = state.audioContext.createGain();
             
@@ -683,11 +854,20 @@
             state.isBeeping = true;
             document.getElementById('audio-indicator').classList.remove('hidden');
             
+            // Determine frequency based on zone type
+            let frequency = 800; // Default frequency
+            if (state.currentZone === 'red') {
+                frequency = 1000; // Higher frequency for red zone
+            } else if (state.currentZone === 'yellow') {
+                frequency = 600; // Lower frequency for yellow zone
+            }
+            
             state.beepTimer = setInterval(() => {
-                playBeep(state.isInRestrictedZone ? 1000 : 600);
+                playBeep(frequency);
             }, interval);
             
-            playBeep();
+            // Play initial beep
+            playBeep(frequency);
         }
 
         // Stop beeping
@@ -718,40 +898,65 @@
             return inside;
         }
 
-        // Check restricted zones
+        // Check restricted zones - matches Python script logic with priority system
         function checkRestrictedZones(lat, lng) {
             const point = { lat, lng };
-            let inZone = false;
-            let zoneType = 'Safe';
+            const matchedZones = [];
 
+            // Check all zones and collect matches (like Python script)
             for (const zone of state.restrictedZones) {
                 if (isPointInPolygon(point, zone.coords)) {
-                    inZone = true;
-                    if (zone.name === 'Red Zone') {
-                        zoneType = 'Restricted';
-                        break;
-                    } else if (zone.name === 'Yellow Zone') {
-                        zoneType = 'Warning';
-                    } else if (zone.name === 'Green Zone') {
-                        zoneType = 'Safe';
-                    }
+                    matchedZones.push(zone);
                 }
             }
 
-            const wasInZone = state.isInRestrictedZone;
-            state.isInRestrictedZone = inZone;
+            // Determine zone type based on priority: RED > GREEN > YELLOW
+            let zoneType = 'safe';
+            let zoneName = 'Safe Zone';
+            
+            if (matchedZones.length > 0) {
+                // Find highest priority zone (RED=3, GREEN=2, YELLOW=1)
+                const priorityOrder = { 'red': 3, 'green': 2, 'yellow': 1 };
+                const highestPriorityZone = matchedZones.reduce((highest, current) => {
+                    return priorityOrder[current.type] > priorityOrder[highest.type] ? current : highest;
+                });
+                
+                zoneType = highestPriorityZone.type;
+                zoneName = highestPriorityZone.name;
+            }
 
-            if (zoneType === 'Restricted') {
-                state.currentStatus = 'Restricted Zone';
-                if (!wasInZone) {
-                    startBeeping(300);
-                    state.userPoints = Math.max(0, state.userPoints - 5);
+            const wasInZone = state.isInRestrictedZone;
+            const previousZone = state.currentZone;
+            state.isInRestrictedZone = matchedZones.length > 0;
+            state.currentZone = zoneType;
+
+            // Handle zone changes and beeping behavior
+            console.log(`Zone detection: ${zoneType}, wasInZone: ${wasInZone}, previousZone: ${previousZone}`);
+            
+            if (zoneType === 'red') {
+                state.currentStatus = 'Red Zone';
+                if (!wasInZone || previousZone !== 'red') {
+                    console.log('Starting RED zone beeping');
+                    startBeeping(300); // Fast beeping for red zone (300ms interval)
+                    state.userPoints = Math.max(0, state.userPoints - 12); // Deduct 12 points for red zone
                     updateDonutChart();
+                    checkSafetyScore();
                 }
-            } else if (zoneType === 'Warning') {
-                state.currentStatus = 'Warning Zone';
-                if (!state.beepTimer) {
-                    startBeeping(1000);
+            } else if (zoneType === 'yellow') {
+                state.currentStatus = 'Yellow Zone';
+                if (!wasInZone || previousZone !== 'yellow') {
+                    console.log('Starting YELLOW zone beeping');
+                    startBeeping(1000); // Slow beeping for yellow zone (1000ms interval)
+                    state.userPoints = Math.max(0, state.userPoints - 6); // Deduct 6 points for yellow zone
+                    updateDonutChart();
+                    checkSafetyScore();
+                }
+            } else if (zoneType === 'green') {
+                state.currentStatus = 'Green Zone';
+                if (wasInZone && (previousZone === 'red' || previousZone === 'yellow')) {
+                    stopBeeping();
+                    state.userPoints = Math.min(100, state.userPoints + 2);
+                    updateDonutChart();
                 }
             } else {
                 state.currentStatus = 'Safe Zone';
@@ -775,6 +980,9 @@
             state.userPosition = { lat, lng };
             state.userMarker.setLatLng([lat, lng]);
             
+            // Update coordinates display
+            updateCoordinates(lat, lng);
+            
             checkRestrictedZones(lat, lng);
         }
 
@@ -783,14 +991,18 @@
             const indicator = document.getElementById('status-indicator');
             let color, icon, text;
             
-            if (state.currentStatus === 'Restricted Zone') {
+            if (state.currentZone === 'red') {
                 color = '#EF4444';
                 icon = '<i class="fas fa-ban mr-1"></i>';
-                text = 'RESTRICTED ZONE';
-            } else if (state.currentStatus === 'Warning Zone') {
+                text = 'RED ZONE';
+            } else if (state.currentZone === 'yellow') {
                 color = '#F59E0B';
                 icon = '<i class="fas fa-exclamation-triangle mr-1"></i>';
-                text = 'WARNING ZONE';
+                text = 'YELLOW ZONE';
+            } else if (state.currentZone === 'green') {
+                color = '#10B981';
+                icon = '<i class="fas fa-check-circle mr-1"></i>';
+                text = 'GREEN ZONE';
             } else {
                 color = '#10B981';
                 icon = '<i class="fas fa-check-circle mr-1"></i>';
@@ -803,8 +1015,31 @@
             // Update user marker color
             const newIcon = L.divIcon({
                 className: 'custom-marker',
-                iconSize: [24, 24],
-                html: `<div style="background-color: ${color}; width: 100%; height: 100%; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);"></div>`
+                html: `
+                    <div style="
+                        width: 30px; 
+                        height: 30px; 
+                        background: ${color}; 
+                        border: 3px solid white; 
+                        border-radius: 50% 50% 50% 0; 
+                        transform: rotate(-45deg); 
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                        position: relative;
+                    ">
+                        <div style="
+                            position: absolute;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%) rotate(45deg);
+                            width: 8px;
+                            height: 8px;
+                            background: white;
+                            border-radius: 50%;
+                        "></div>
+                    </div>
+                `,
+                iconSize: [30, 30],
+                iconAnchor: [15, 30]
             });
             
             state.userMarker.setIcon(newIcon);
@@ -872,6 +1107,280 @@
             if (!state.isInRestrictedZone && Math.random() < 0.1) {
                 state.userPoints = Math.min(100, state.userPoints + 1);
                 updateDonutChart();
+            }
+        }
+
+        // Enable audio function
+        function enableAudio() {
+            if (!state.audioContext) {
+                try {
+                    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('Audio enabled');
+                } catch (e) {
+                    console.log('Audio not supported');
+                }
+            }
+        }
+
+        // Test beep function
+        function testBeep() {
+            console.log('Testing beep...');
+            playBeep(800);
+        }
+
+        // Test yellow zone beeping
+        function testYellowBeeping() {
+            console.log('Testing yellow zone beeping...');
+            state.currentZone = 'yellow';
+            startBeeping(1000);
+        }
+
+        // Test safety score system
+        function testSafetyScore() {
+            console.log('Testing safety score system...');
+            // Simulate entering red zone multiple times to trigger warnings
+            state.userPoints = 25; // Set to 25 to trigger fine warning
+            updateDonutChart();
+            checkSafetyScore();
+        }
+
+        // Check safety score and apply penalties
+        function checkSafetyScore() {
+            if (state.userPoints <= 33 && state.userPoints > 20) {
+                // Show fine warning
+                showFineWarning();
+            } else if (state.userPoints <= 20) {
+                // Show basecamp return warning
+                showBasecampWarning();
+            }
+        }
+
+        // Show fine warning
+        function showFineWarning() {
+            const fineModal = document.createElement('div');
+            fineModal.id = 'fine-modal';
+            fineModal.innerHTML = `
+                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;">
+                    <div style="background: white; padding: 2rem; border-radius: 1rem; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+                        <div style="font-size: 3rem; color: #F59E0B; margin-bottom: 1rem;">⚠️</div>
+                        <h2 style="color: #F59E0B; margin-bottom: 1rem;">Safety Violation Fine</h2>
+                        <p style="color: #666; margin-bottom: 1.5rem;">Your safety score has dropped below 33 points. A fine of ₹500 has been imposed for not following safety guidelines.</p>
+                        <p style="color: #999; font-size: 0.9rem; margin-bottom: 1.5rem;">Current Score: ${state.userPoints}/100</p>
+                        <button onclick="closeFineModal()" style="background: #F59E0B; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: bold;">
+                            Acknowledge Fine
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(fineModal);
+        }
+
+        // Show basecamp return warning
+        function showBasecampWarning() {
+            const basecampModal = document.createElement('div');
+            basecampModal.id = 'basecamp-modal';
+            basecampModal.innerHTML = `
+                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; display: flex; align-items: center; justify-content: center;">
+                    <div style="background: linear-gradient(135deg, #EF4444, #DC2626); padding: 2rem; border-radius: 1rem; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); color: white;">
+                        <div style="font-size: 4rem; margin-bottom: 1rem;">🚨</div>
+                        <h2 style="margin-bottom: 1rem; font-size: 1.5rem;">CRITICAL SAFETY ALERT</h2>
+                        <p style="margin-bottom: 1.5rem; font-size: 1.1rem;">Your safety score has dropped to ${state.userPoints} points. You must return to basecamp immediately!</p>
+                        <p style="margin-bottom: 1.5rem; font-size: 0.9rem; opacity: 0.9;">This is a mandatory safety requirement. Please proceed to the nearest basecamp location.</p>
+                        <button onclick="closeBasecampModal()" style="background: white; color: #EF4444; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: bold; font-size: 1rem;">
+                            I Understand - Returning to Basecamp
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(basecampModal);
+        }
+
+        // Close fine modal
+        function closeFineModal() {
+            const modal = document.getElementById('fine-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // Close basecamp modal
+        function closeBasecampModal() {
+            const modal = document.getElementById('basecamp-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // Update coordinates display
+        function updateCoordinates(lat, lng) {
+            document.getElementById('current-lat').textContent = lat.toFixed(6);
+            document.getElementById('current-lng').textContent = lng.toFixed(6);
+        }
+
+        // Locate user function
+        function locateUser() {
+            const locateBtn = document.getElementById('locate-me-btn');
+            
+            if (!navigator.geolocation) {
+                alert("Geolocation is not supported by your browser");
+                return;
+            }
+            
+            // Show loading state
+            locateBtn.classList.add('locating');
+            locateBtn.innerHTML = '<div class="location-loading"></div>';
+            
+            // Get current position
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    // Success callback
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    // Update user position
+                    state.userPosition = { lat, lng };
+                    state.userMarker.setLatLng([lat, lng]);
+                    state.map.setView([lat, lng], 18);
+                    
+                    // Update coordinates display
+                    updateCoordinates(lat, lng);
+                    
+                    // Check if in restricted zone
+                    checkRestrictedZones(lat, lng);
+                    
+                    // Reset button state
+                    locateBtn.classList.remove('locating');
+                    locateBtn.innerHTML = '<i class="fas fa-location-arrow"></i>';
+                    
+                    // Show success message
+                    document.getElementById('notification-text').textContent = 
+                        `Location updated! You are at ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                },
+                function(error) {
+                    // Error callback
+                    console.error("Error getting location:", error);
+                    
+                    // Reset button state
+                    locateBtn.classList.remove('locating');
+                    locateBtn.innerHTML = '<i class="fas fa-location-arrow"></i>';
+                    
+                    // Show error message
+                    let errorMsg = "Unable to get your location";
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMsg = "Location access denied. Please enable location permissions in your browser settings.";
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMsg = "Location information is unavailable.";
+                            break;
+                        case error.TIMEOUT:
+                            errorMsg = "The request to get your location timed out.";
+                            break;
+                    }
+                    
+                    document.getElementById('notification-text').textContent = errorMsg;
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 60000
+                }
+            );
+        }
+
+        // Developer Mode Functions
+        function toggleDevMode() {
+            state.devMode = !state.devMode;
+            const toggle = document.getElementById('dev-mode-toggle');
+            
+            if (state.devMode) {
+                // Enable developer mode
+                toggle.style.backgroundColor = '#10B981';
+                toggle.innerHTML = '<i class="fas fa-code mr-1"></i> DEV ON';
+                
+                // Stop live location tracking
+                if (state.locationWatchId) {
+                    navigator.geolocation.clearWatch(state.locationWatchId);
+                    state.locationWatchId = null;
+                }
+                
+                // Create draggable pin
+                createDraggablePin();
+                
+                // Update notification
+                document.getElementById('notification-text').textContent = 
+                    'Developer mode enabled. Drag the red pin to test different locations.';
+            } else {
+                // Disable developer mode
+                toggle.style.backgroundColor = '#6B7280';
+                toggle.innerHTML = '<i class="fas fa-code mr-1"></i> DEV MODE';
+                
+                // Remove draggable pin
+                if (state.devPin) {
+                    state.map.removeLayer(state.devPin);
+                    state.devPin = null;
+                }
+                
+                // Location tracking is now manual only (via locate me button)
+                
+                // Update notification
+                document.getElementById('notification-text').textContent = 
+                    'Developer mode disabled. Use the locate me button to get your current location.';
+            }
+        }
+
+        function createDraggablePin() {
+            // Create a draggable marker for testing
+            const devIcon = L.divIcon({
+                className: 'dev-pin',
+                html: '<div style="background-color: #EF4444; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); cursor: move;"></div>',
+                iconSize: [20, 20]
+            });
+            
+            state.devPin = L.marker([state.userPosition.lat, state.userPosition.lng], { 
+                icon: devIcon,
+                draggable: true
+            }).addTo(state.map);
+            
+            // Add drag event listener
+            state.devPin.on('dragend', function(e) {
+                const newPos = e.target.getLatLng();
+                state.userPosition = { lat: newPos.lat, lng: newPos.lng };
+                state.userMarker.setLatLng([newPos.lat, newPos.lng]);
+                
+                // Update coordinates display
+                updateCoordinates(newPos.lat, newPos.lng);
+                
+                checkRestrictedZones(newPos.lat, newPos.lng);
+                
+                // Update notification with coordinates
+                document.getElementById('notification-text').textContent = 
+                    `Testing location: ${newPos.lat.toFixed(6)}, ${newPos.lng.toFixed(6)}`;
+            });
+        }
+
+        function startLocationTracking() {
+            if (navigator.geolocation) {
+                state.locationWatchId = navigator.geolocation.watchPosition(
+                    function(position) {
+                        if (!state.devMode) {
+                            const lat = position.coords.latitude;
+                            const lng = position.coords.longitude;
+                            
+                            state.userPosition = { lat, lng };
+                            state.userMarker.setLatLng([lat, lng]);
+                            checkRestrictedZones(lat, lng);
+                        }
+                    },
+                    function(error) {
+                        console.log('Location tracking error:', error);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 60000
+                    }
+                );
             }
         }
 
